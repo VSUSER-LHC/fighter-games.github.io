@@ -11,6 +11,9 @@ import { AIM120 } from './weapons/aim120.js';
 
 import { setupHUD, drawHUD }
 from './ui/hud.js';
+import { Radar } from './ui/radar.js';
+
+const radar = new Radar(12000);
 
 const {
     scene,
