@@ -1,6 +1,8 @@
 import * as THREE from
 'https://cdn.jsdelivr.net/npm/three@0.161/build/three.module.js';
 
+import { Flare } from '../effects/flares.js';
+
 export class EnemyAI {
 
     constructor() {
@@ -10,11 +12,19 @@ export class EnemyAI {
 
         this.mesh = this.createEnemy();
 
-        this.state = "PATROL";
+        // 状態
+        this.state = "CHASE";
 
+        // 回避タイマー
         this.evadeTimer = 0;
-        this.attackCooldown = 0;
+
+        // フレア管理
+        this.flares = [];
     }
+
+    //////////////////////////////////////////////////
+    // MODEL
+    //////////////////////////////////////////////////
 
     createEnemy() {
 
@@ -39,28 +49,8 @@ export class EnemyAI {
 
     update(player, missiles = [], delta) {
 
-        const distToPlayer =
-            this.mesh.position.distanceTo(
-                player.mesh.position
-            );
-
         //////////////////////////////////////////////////
-        // STATE DECISION
-        //////////////////////////////////////////////////
-
-        if (distToPlayer < 1200) {
-            this.state = "ATTACK";
-        } else {
-            this.state = "CHASE";
-        }
-
-        if (this.evadeTimer > 0) {
-            this.state = "EVADE";
-            this.evadeTimer -= delta;
-        }
-
-        //////////////////////////////////////////////////
-        // MISSILE AVOIDANCE TRIGGER
+        // MISSILE DETECTION
         //////////////////////////////////////////////////
 
         for (const m of missiles) {
@@ -70,9 +60,43 @@ export class EnemyAI {
                     m.mesh.position
                 );
 
-            if (dist < 250) {
+            if (dist < 300) {
+
+                // 回避状態に入る
                 this.evadeTimer = 2.0;
+
+                this.state = "EVADE";
+
+                // IRミサイルならフレア
+                if (m.type === "IR") {
+
+                    this.spawnFlare();
+                }
             }
+        }
+
+        //////////////////////////////////////////////////
+        // STATE UPDATE
+        //////////////////////////////////////////////////
+
+        if (this.evadeTimer > 0) {
+
+            this.evadeTimer -= delta;
+
+            this.evade(player, missiles, delta);
+
+            return;
+        }
+
+        const distance =
+            this.mesh.position.distanceTo(
+                player.mesh.position
+            );
+
+        if (distance < 1200) {
+            this.state = "ATTACK";
+        } else {
+            this.state = "CHASE";
         }
 
         //////////////////////////////////////////////////
@@ -80,18 +104,11 @@ export class EnemyAI {
         //////////////////////////////////////////////////
 
         if (this.state === "CHASE") {
-
             this.chase(player, delta);
         }
 
         if (this.state === "ATTACK") {
-
             this.attack(player, delta);
-        }
-
-        if (this.state === "EVADE") {
-
-            this.evade(missiles, delta);
         }
     }
 
@@ -113,7 +130,7 @@ export class EnemyAI {
     }
 
     //////////////////////////////////////////////////
-    // ATTACK (distance control)
+    // ATTACK
     //////////////////////////////////////////////////
 
     attack(player, delta) {
@@ -123,16 +140,16 @@ export class EnemyAI {
                 .clone()
                 .sub(this.mesh.position);
 
-        const distance = toPlayer.length();
+        const dist = toPlayer.length();
 
         let dir = toPlayer.normalize();
 
-        // 距離が近すぎたら離れる
-        if (distance < 600) {
+        // 距離調整（近すぎたら離れる）
+        if (dist < 600) {
             dir.multiplyScalar(-1);
         }
 
-        // 少し横揺れ（戦闘機っぽさ）
+        // 揺れ（戦闘機っぽさ）
         dir.x += (Math.random() - 0.5) * 0.3;
         dir.y += (Math.random() - 0.5) * 0.2;
         dir.z += (Math.random() - 0.5) * 0.3;
@@ -143,10 +160,10 @@ export class EnemyAI {
     }
 
     //////////////////////////////////////////////////
-    // EVADE (missile dodge)
+    // EVADE
     //////////////////////////////////////////////////
 
-    evade(missiles, delta) {
+    evade(player, missiles, delta) {
 
         let avoid = new THREE.Vector3();
 
@@ -167,13 +184,13 @@ export class EnemyAI {
             }
         }
 
-        // 逃げ方向がない場合は横移動
+        // 回避方向がない場合ランダム
         if (avoid.length() === 0) {
 
             avoid.set(
-                (Math.random() - 0.5),
+                Math.random() - 0.5,
                 0,
-                (Math.random() - 0.5)
+                Math.random() - 0.5
             );
         }
 
@@ -187,7 +204,7 @@ export class EnemyAI {
     }
 
     //////////////////////////////////////////////////
-    // MOVEMENT CORE
+    // MOVE CORE
     //////////////////////////////////////////////////
 
     move(dir, delta) {
@@ -195,5 +212,37 @@ export class EnemyAI {
         this.mesh.position.add(
             dir.multiplyScalar(this.speed * delta)
         );
+    }
+
+    //////////////////////////////////////////////////
+    // FLARE
+    //////////////////////////////////////////////////
+
+    spawnFlare() {
+
+        const flare =
+            new Flare(this.mesh.position.clone());
+
+        this.flares.push(flare);
+    }
+
+    updateFlares(delta, scene) {
+
+        for (let i = this.flares.length - 1; i >= 0; i--) {
+
+            const f = this.flares[i];
+
+            const alive = f.update(delta);
+
+            if (!f.mesh.parent) {
+                scene.add(f.mesh);
+            }
+
+            if (!alive) {
+
+                scene.remove(f.mesh);
+                this.flares.splice(i, 1);
+            }
+        }
     }
 }
